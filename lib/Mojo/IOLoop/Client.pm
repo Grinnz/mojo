@@ -4,6 +4,7 @@ use Mojo::Base 'Mojo::EventEmitter';
 use Errno 'EINPROGRESS';
 use IO::Socket::IP;
 use Mojo::IOLoop;
+use Mojo::IOLoop::Resolver::Dummy;
 use Scalar::Util 'weaken';
 use Socket qw(IPPROTO_TCP TCP_NODELAY);
 
@@ -22,6 +23,8 @@ use constant SOCKS_READ  => SOCKS ? IO::Socket::Socks::SOCKS_WANT_READ()  : 0;
 use constant SOCKS_WRITE => SOCKS ? IO::Socket::Socks::SOCKS_WANT_WRITE() : 0;
 
 has reactor => sub { Mojo::IOLoop->singleton->reactor };
+has resolver =>
+  sub { ($ENV{MOJO_RESOLVER} || 'Mojo::IOLoop::Resolver::Dummy')->new };
 
 sub DESTROY { shift->_cleanup }
 
@@ -36,7 +39,19 @@ sub connect {
     sub { $self->emit(error => 'Connect timeout') });
 
   $_ && s/[[\]]//g for @$args{qw(address socks_address)};
-  $reactor->next_tick(sub { $self && $self->_connect($args) });
+  my $address = $args->{socks_address} || ($args->{address} ||= 'localhost');
+  return $reactor->next_tick(sub { $self && $self->_connect($args) })
+    if $address eq 'localhost' || $args->{handle};
+
+  $self->resolver->getaddrinfo(
+    $address => _port($args) => sub {
+      my ($resolver, $err, $addr_info) = @_;
+      return unless $self;
+      return $self->emit(error => "Can't resolve: $err") if $err;
+      $args->{addr_info} = $addr_info if $addr_info;
+      $self->_connect($args);
+    }
+  );
 }
 
 sub _cleanup {
@@ -50,13 +65,14 @@ sub _connect {
   my ($self, $args) = @_;
 
   my $handle;
-  my $address = $args->{socks_address} || ($args->{address} ||= 'localhost');
+  my $address = $args->{socks_address} || $args->{address};
   unless ($handle = $self->{handle} = $args->{handle}) {
     my %options = (
-      Blocking => 0,
       PeerAddr => $address eq 'localhost' ? '127.0.0.1' : $address,
       PeerPort => _port($args)
     );
+    %options = (PeerAddrInfo => $args->{addr_info}) if $args->{addr_info};
+    $options{Blocking} = 0;
     $options{LocalAddr} = $args->{local_address} if $args->{local_address};
     return $self->emit(error => "Can't connect: $@")
       unless $self->{handle} = $handle = IO::Socket::IP->new(%options);
