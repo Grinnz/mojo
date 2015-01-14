@@ -46,7 +46,7 @@ sub one_tick {
         next unless my $io = $self->{io}{fileno $handle};
         ++$i and $self->_sandbox('Read', $io->{cb}, 0);
       }
-      for my $handle ($poll->handles(POLLOUT)) {
+      for my $handle ($poll->handles(POLLOUT | POLLHUP | POLLERR)) {
         next unless my $io = $self->{io}{fileno $handle};
         ++$i and $self->_sandbox('Write', $io->{cb}, 1);
       }

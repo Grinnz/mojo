@@ -152,6 +152,29 @@ $reactor->io($_ => sub { ++$writable and shift->reset })->watch($_, 0, 1)
 $reactor->start;
 is $writable, 1, 'only one handle was writable';
 
+# Read/write failure
+$reactor->reset;
+$listen = IO::Socket::INET->new(Listen => 5, LocalAddr => '127.0.0.1');
+$port = $listen->sockport;
+$client = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port);
+($readable, $writable) = ();
+$reactor->io($client => sub { pop() ? $writable++ : $readable++ });
+$reactor->timer(0.025 => sub { shift->stop });
+$client->shutdown(Socket::SHUT_RDWR());
+$reactor->start;
+ok $readable, 'received read callback';
+ok $writable, 'received write callback';
+$reactor->remove($client);
+$client = IO::Socket::INET->new(PeerAddr => '127.0.0.1', PeerPort => $port);
+($readable, $writable) = ();
+$reactor->io($listen => sub { pop() ? $writable++ : $readable++ });
+$reactor->timer(0.025 => sub { shift->stop });
+$listen->shutdown(Socket::SHUT_RDWR());
+$reactor->start;
+ok $readable, 'received read callback';
+ok $writable, 'received write callback';
+$reactor->remove($listen);
+
 # Concurrent reactors
 $timer = 0;
 $reactor->recurring(0 => sub { $timer++ });
