@@ -4,7 +4,7 @@ use Mojo::Base 'Mojolicious::Command';
 use Getopt::Long qw(GetOptionsFromArray :config no_auto_abbrev no_ignore_case);
 use Mojo::DOM;
 use Mojo::IOLoop;
-use Mojo::JSON qw(encode_json j);
+use Mojo::JSON qw(decode_json encode_json j);
 use Mojo::JSON::Pointer;
 use Mojo::Util qw(decode encode);
 use Scalar::Util 'weaken';
@@ -18,7 +18,9 @@ sub run {
   GetOptionsFromArray \@args,
     'C|charset=s' => \my $charset,
     'c|content=s' => \(my $content = ''),
+    'f|form=s'    => \my $form,
     'H|header=s'  => \my @headers,
+    'j|json=s'    => \my $json,
     'M|method=s'  => \(my $method = 'GET'),
     'r|redirect'  => \my $redirect,
     'v|verbose'   => \my $verbose;
@@ -29,6 +31,14 @@ sub run {
 
   # Parse header pairs
   my %headers = map { /^\s*([^:]+)\s*:\s*(.+)$/ ? ($1, $2) : () } @headers;
+
+  my @generator = ($content);
+  # Parse form or JSON content
+  if (defined $json) {
+    @generator = (json => decode_json $json);
+  } elsif (defined $form) {
+    @generator = (form => decode_json $form);
+  }
 
   # Detect proxy for absolute URLs
   my $ua = $self->app->ua->ioloop(Mojo::IOLoop->singleton);
@@ -63,7 +73,7 @@ sub run {
   # Switch to verbose for HEAD requests
   $verbose = 1 if $method eq 'HEAD';
   STDOUT->autoflush(1);
-  my $tx = $ua->start($ua->build_tx($method, $url, \%headers, $content));
+  my $tx = $ua->start($ua->build_tx($method, $url, \%headers, @generator));
   my $err = $tx->error;
   warn qq{Problem loading URL "@{[$tx->req->url]}": $err->{message}\n}
     if $err && !$err->{code};
@@ -134,6 +144,8 @@ Mojolicious::Command::get - Get command
     mojo get -v -r google.com
     mojo get -v -H 'Host: mojolicious.org' -H 'Accept: */*' mojolicio.us
     mojo get -M POST -H 'Content-Type: text/trololo' -c 'trololo' mojolicio.us
+    mojo get -M POST -f '{"form":"data","multi":["par","ams"]}' mojolicio.us
+    mojo get -M PUT -j '["json",{"nested":"structure"}]' mojolicio.us
     mojo get mojolicio.us 'head > title' text
     mojo get mojolicio.us .footer all
     mojo get mojolicio.us a attr href
@@ -145,7 +157,10 @@ Mojolicious::Command::get - Get command
     -C, --charset <charset>     Charset of HTML/XML content, defaults to auto
                                 detection.
     -c, --content <content>     Content to send with request.
+    -f, --form <json>           Form data specified as serialized JSON, to send
+                                as query string or urlencoded content.
     -H, --header <name:value>   Additional HTTP header.
+    -j, --json <json>           Serialized JSON to send as content.
     -M, --method <method>       HTTP method to use, defaults to "GET".
     -r, --redirect              Follow up to 10 redirects.
     -v, --verbose               Print request and response headers to STDERR.
