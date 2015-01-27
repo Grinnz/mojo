@@ -15,9 +15,11 @@ has usage => sub { shift->extract_usage };
 sub run {
   my ($self, @args) = @_;
 
+  my @content;
   GetOptionsFromArray \@args,
     'C|charset=s' => \my $charset,
-    'c|content=s' => \(my $content = ''),
+    'c|content=s' => sub { @content = $_[1] },
+    'f|form=s'    => \my @form,
     'H|header=s'  => \my @headers,
     'M|method=s'  => \(my $method = 'GET'),
     'r|redirect'  => \my $redirect,
@@ -29,6 +31,10 @@ sub run {
 
   # Parse header pairs
   my %headers = map { /^\s*([^:]+)\s*:\s*(.+)$/ ? ($1, $2) : () } @headers;
+
+  # Parse form fields
+  @content = (form => { map { /^([^=]+)=(.*)$/ ? ($1, $2) : () } @form })
+    if @form;
 
   # Detect proxy for absolute URLs
   my $ua = $self->app->ua->ioloop(Mojo::IOLoop->singleton);
@@ -63,7 +69,7 @@ sub run {
   # Switch to verbose for HEAD requests
   $verbose = 1 if $method eq 'HEAD';
   STDOUT->autoflush(1);
-  my $tx = $ua->start($ua->build_tx($method, $url, \%headers, $content));
+  my $tx = $ua->start($ua->build_tx($method, $url, \%headers, @content));
   my $err = $tx->error;
   warn qq{Problem loading URL "@{[$tx->req->url]}": $err->{message}\n}
     if $err && !$err->{code};
@@ -134,6 +140,7 @@ Mojolicious::Command::get - Get command
     mojo get -v -r google.com
     mojo get -v -H 'Host: mojolicious.org' -H 'Accept: */*' mojolicio.us
     mojo get -M POST -H 'Content-Type: text/trololo' -c 'trololo' mojolicio.us
+    mojo get -M POST -f 'foo=bar' -f 'baz=bar' mojolicio.us
     mojo get mojolicio.us 'head > title' text
     mojo get mojolicio.us .footer all
     mojo get mojolicio.us a attr href
@@ -145,6 +152,7 @@ Mojolicious::Command::get - Get command
     -C, --charset <charset>     Charset of HTML/XML content, defaults to auto
                                 detection
     -c, --content <content>     Content to send with request
+    -f, --form <name=value>     Form data for "form" content generator
     -H, --header <name:value>   Additional HTTP header
     -M, --method <method>       HTTP method to use, defaults to "GET"
     -r, --redirect              Follow up to 10 redirects
