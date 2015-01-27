@@ -1,13 +1,44 @@
 
-5.73  2015-01-15
+5.76  2015-01-27
+
+5.75  2015-01-26
+  - Added healthy method to Mojo::Server::Prefork.
+  - Improved all built-in web servers to die if group or user assignment
+    failed.
+  - Improved Hypnotoad to wait for new workers to be ready before stopping the
+    old ones during hot deployment.
+  - Improved commands and log messages to use less punctuation.
+  - Fixed bug in Mojo::IOLoop where the callback passed to next_tick would
+    receive the wrong invocant.
+  - Fixed race condition and memory leak in Mojo::Server::Prefork.
+
+5.74  2015-01-25
+  - Improved parser errors to be more consistent with connection errors in
+    Mojo::Message::Request and Mojo::Message::Response.
+  - Fixed "0" value bug in Mojo::Parameters.
+  - Fixed bug where placeholder default values would not always have
+    precedence.
+  - Fixed proxy detection in get command.
+
+5.73  2015-01-24
   - Deprecated Mojolicious::Routes::Route::bridge in favor of
     Mojolicious::Routes::Route::under.
+  - Deprecated Mojolicious::Controller::render_exception in favor of
+    reply->exception helper.
+  - Deprecated Mojolicious::Controller::render_not_found in favor of
+    reply->not_found helper.
   - Removed deprecated object-oriented Mojo::JSON API.
   - Removed deprecated stringification support from Mojo::Collection.
   - Removed deprecated support for data arguments from Mojo::JSON::Pointer.
   - Removed deprecated AUTOLOAD and pluck methods from Mojo::Collection.
   - Removed deprecated AUTOLOAD and val methods from Mojo::DOM.
+  - Moved tutorial from Mojolicious::Lite to Mojolicious::Guides::Tutorial.
+  - Added term_escape method to Mojo::ByteStream.
+  - Added term_escape function to Mojo::Util.
   - Improved get command to use the user agent of the application.
+  - Improved diagnostics information for MOJO_DAEMON_DEBUG,
+    MOJO_USERAGENT_DEBUG and MOJO_WEBSOCKET_DEBUG environment variables.
+  - Fixed tag helpers to generate correct HTML5. (batman, sri)
   - Fixed JSON Pointer escaping bug.
   - Fixed portability bug in monkey_patch tests.
 

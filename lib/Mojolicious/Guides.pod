@@ -29,7 +29,10 @@ L<learn.perl.org|http://learn.perl.org/>.
 
 All web development starts with HTML, CSS and JavaScript, to learn the basics
 we recommend the
-L<Mozilla Developer Network|https://developer.mozilla.org/en-US/docs/Web>.
+L<Mozilla Developer Network|https://developer.mozilla.org/en-US/docs/Web>. And
+if you want to know more about how browsers and web servers actually
+communicate, there's also a very nice introduction to
+L<HTTP|https://developer.mozilla.org/en-US/docs/Web/HTTP>.
 
 =back
 
@@ -37,14 +40,14 @@ L<Mozilla Developer Network|https://developer.mozilla.org/en-US/docs/Web>.
 
 =over 2
 
-=item L<Mojolicious::Lite>
+=item L<Mojolicious::Guides::Tutorial>
 
-A fast and fun way to get started developing web applications with Mojolicious
-is the L<Mojolicious::Lite> tutorial. This micro web framework is only a thin
-wrapper around the normal web framework, so almost everything you learn here
-also applies to full L<Mojolicious> applications. The simplified notation
-introduced in the tutorial is commonly used throughout the guides and is
-therefore considered a prerequisite, you should definitely take a look!
+A fast and fun way to get started developing web applications with
+L<Mojolicious>. The tutorial introduces the L<Mojolicious::Lite> micro web
+framework, which is only a thin wrapper around the full web framework. The
+simplified notation introduced in the tutorial is commonly used throughout the
+guides and is therefore considered a prerequisite, you should definitely take
+a look!
 
 =back
 

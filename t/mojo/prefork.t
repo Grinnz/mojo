@@ -41,13 +41,14 @@ $prefork->on(
   }
 );
 is $prefork->workers, 4, 'start with four workers';
-my (@spawn, @reap, $worker, $tx, $graceful);
+my (@spawn, @reap, $worker, $tx, $graceful, $healthy);
 $prefork->on(spawn => sub { push @spawn, pop });
 $prefork->once(
   heartbeat => sub {
     my ($prefork, $pid) = @_;
-    $worker = $pid;
-    $tx     = Mojo::UserAgent->new->get("http://127.0.0.1:$port");
+    $worker  = $pid;
+    $healthy = $prefork->healthy;
+    $tx      = Mojo::UserAgent->new->get("http://127.0.0.1:$port");
     kill 'QUIT', $$;
   }
 );
@@ -55,7 +56,9 @@ $prefork->on(reap => sub { push @reap, pop });
 $prefork->on(finish => sub { $graceful = pop });
 my $log = '';
 my $cb = $prefork->app->log->on(message => sub { $log .= pop });
+is $prefork->healthy, 0, 'no healthy workers';
 $prefork->run;
+ok $healthy >= 1, 'healthy workers';
 is scalar @spawn, 4, 'four workers spawned';
 is scalar @reap,  4, 'four workers reaped';
 ok !!grep { $worker eq $_ } @spawn, 'worker has a heartbeat';
@@ -63,11 +66,11 @@ ok $graceful, 'server has been stopped gracefully';
 is_deeply [sort @spawn], [sort @reap], 'same process ids';
 is $tx->res->code, 200,           'right status';
 is $tx->res->body, 'just works!', 'right content';
-like $log, qr/Listening at/,                                 'right message';
-like $log, qr/Manager $$ started\./,                         'right message';
-like $log, qr/Creating process id file/,                     'right message';
-like $log, qr/Trying to stop worker $spawn[0] gracefully\./, 'right message';
-like $log, qr/Worker $spawn[0] stopped\./,                   'right message';
+like $log, qr/Listening at/,                         'right message';
+like $log, qr/Manager $$ started/,                   'right message';
+like $log, qr/Creating process id file/,             'right message';
+like $log, qr/Stopping worker $spawn[0] gracefully/, 'right message';
+like $log, qr/Worker $spawn[0] stopped/,             'right message';
 $prefork->app->log->unsubscribe(message => $cb);
 
 # Process id and lock files

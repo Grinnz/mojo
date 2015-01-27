@@ -56,8 +56,8 @@ our @EXPORT_OK = (
   qw(decode deprecated dumper encode hmac_sha1_sum html_unescape md5_bytes),
   qw(md5_sum monkey_patch punycode_decode punycode_encode quote),
   qw(secure_compare sha1_bytes sha1_sum slurp split_header spurt squish),
-  qw(steady_time tablify trim unindent unquote url_escape url_unescape),
-  qw(xml_escape xor_encode xss_escape)
+  qw(steady_time tablify term_escape trim unindent unquote url_escape),
+  qw(url_unescape xml_escape xor_encode xss_escape)
 );
 
 sub b64_decode { decode_base64 $_[0] }
@@ -76,7 +76,7 @@ sub camelize {
 sub class_to_file {
   my $class = shift;
   $class =~ s/::|'//g;
-  $class =~ s/([A-Z])([A-Z]*)/$1.lc($2)/ge;
+  $class =~ s/([A-Z])([A-Z]*)/$1 . lc $2/ge;
   return decamelize($class);
 }
 
@@ -299,6 +299,12 @@ sub tablify {
   return join '', map { sprintf "$format\n", @$_ } @$rows;
 }
 
+sub term_escape {
+  my $str = shift;
+  $str =~ s/([\x00-\x09\x0b-\x1f\x7f\x80-\x9f])/sprintf '\\x%02x', ord $1/ge;
+  return $str;
+}
+
 sub trim {
   my $str = shift;
   $str =~ s/^\s+//;
@@ -323,14 +329,14 @@ sub unquote {
 
 sub url_escape {
   my ($str, $pattern) = @_;
-  if ($pattern) { $str =~ s/([$pattern])/sprintf('%%%02X',ord($1))/ge }
-  else          { $str =~ s/([^A-Za-z0-9\-._~])/sprintf('%%%02X',ord($1))/ge }
+  if   ($pattern) { $str =~ s/([$pattern])/sprintf '%%%02X', ord $1/ge }
+  else            { $str =~ s/([^A-Za-z0-9\-._~])/sprintf '%%%02X', ord $1/ge }
   return $str;
 }
 
 sub url_unescape {
   my $str = shift;
-  $str =~ s/%([0-9a-fA-F]{2})/chr(hex($1))/ge;
+  $str =~ s/%([0-9a-fA-F]{2})/chr hex $1/ge;
   return $str;
 }
 
@@ -558,11 +564,17 @@ Encode characters to bytes.
 
 Generate HMAC-SHA1 checksum for bytes.
 
+  # "11cedfd5ec11adc0ec234466d8a0f2a83736aa68"
+  hmac_sha1_sum 'foo', 'passw0rd';
+
 =head2 html_unescape
 
   my $str = html_unescape $escaped;
 
 Unescape all HTML entities in string.
+
+  # "<div>"
+  html_unescape '&lt;div&gt;';
 
 =head2 md5_bytes
 
@@ -575,6 +587,9 @@ Generate binary MD5 checksum for bytes.
   my $checksum = md5_sum $bytes;
 
 Generate MD5 checksum for bytes.
+
+  # "acbd18db4cc2f85cedef654fccc4a4d8"
+  md5_sum 'foo';
 
 =head2 monkey_patch
 
@@ -595,12 +610,18 @@ Monkey patch functions into package.
 Punycode decode string as described in
 L<RFC 3492|http://tools.ietf.org/html/rfc3492>.
 
+  # "bücher"
+  punycode_decode 'bcher-kva';
+
 =head2 punycode_encode
 
   my $punycode = punycode_encode $str;
 
 Punycode encode string as described in
 L<RFC 3492|http://tools.ietf.org/html/rfc3492>.
+
+  # "bcher-kva"
+  punycode_encode 'bücher';
 
 =head2 quote
 
@@ -625,6 +646,9 @@ Generate binary SHA1 checksum for bytes.
   my $checksum = sha1_sum $bytes;
 
 Generate SHA1 checksum for bytes.
+
+  # "0beec7b5ea3f0fdbc95d0dd47f3c5bc275da8a33"
+  sha1_sum 'foo';
 
 =head2 slurp
 
@@ -660,6 +684,9 @@ Write all data at once to file.
 Trim whitespace characters from both ends of string and then change all
 consecutive groups of whitespace into one space each.
 
+  # "foo bar"
+  squish '  foo  bar  ';
+
 =head2 steady_time
 
   my $time = steady_time;
@@ -677,17 +704,32 @@ Row-oriented generator for text tables.
   # "foo   bar\nyada  yada\nbaz   yada\n"
   tablify [['foo', 'bar'], ['yada', 'yada'], ['baz', 'yada']];
 
+=head2 term_escape
+
+  my $escaped = term_escape $str;
+
+Escape all POSIX control characters except for C<\n>.
+
+  # "foo\\x09bar\\x0d\n"
+  term_escape "foo\tbar\r\n";
+
 =head2 trim
 
   my $trimmed = trim $str;
 
 Trim whitespace characters from both ends of string.
 
+  # "foo bar"
+  trim '  foo bar  ';
+
 =head2 unindent
 
   my $unindented = unindent $str;
 
 Unindent multiline string.
+
+  # "foo\nbar\nbaz\n"
+  unindent "  foo\n  bar\n  baz\n";
 
 =head2 unquote
 
@@ -704,6 +746,9 @@ Percent encode unsafe characters in string as described in
 L<RFC 3986|http://tools.ietf.org/html/rfc3986>, the pattern used defaults to
 C<^A-Za-z0-9\-._~>.
 
+  # "foo%3Bbar"
+  url_unescape 'foo;bar';
+
 =head2 url_unescape
 
   my $str = url_unescape $escaped;
@@ -711,11 +756,17 @@ C<^A-Za-z0-9\-._~>.
 Decode percent encoded characters in string as described in
 L<RFC 3986|http://tools.ietf.org/html/rfc3986>.
 
+  # "foo;bar"
+  url_unescape 'foo%3Bbar';
+
 =head2 xml_escape
 
   my $escaped = xml_escape $str;
 
 Escape unsafe characters C<&>, C<E<lt>>, C<E<gt>>, C<"> and C<'> in string.
+
+  # "&lt;div&gt;"
+  xml_escape '<div>';
 
 =head2 xor_encode
 

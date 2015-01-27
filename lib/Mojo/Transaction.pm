@@ -214,8 +214,11 @@ Connection identifier or socket.
 
   my $err = $tx->error;
 
-Return transaction error or C<undef> if there is no error, commonly used
-together with L</"success">.
+Get request or response error and return C<undef> if there is no error,
+commonly used together with L</"success">.
+
+  # Longer version
+  my $err = $tx->req->error || $tx->res->error;
 
   # Check for different kinds of errors
   if (my $err = $tx->error) {

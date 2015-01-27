@@ -9,7 +9,7 @@ use Mojo::JSON::Pointer;
 use Mojo::Util qw(decode encode);
 use Scalar::Util 'weaken';
 
-has description => 'Perform HTTP request.';
+has description => 'Perform HTTP request';
 has usage => sub { shift->extract_usage };
 
 sub run {
@@ -43,7 +43,7 @@ sub run {
   # Detect proxy for absolute URLs
   my $ua = $self->app->ua->ioloop(Mojo::IOLoop->singleton);
   $ua->server->ioloop(Mojo::IOLoop->singleton);
-  $ua->proxy->detect unless $url !~ m!^/!;
+  $ua->proxy->detect unless $url =~ m!^/!;
   $ua->max_redirects(10) if $redirect;
 
   my $buffer = '';
@@ -155,15 +155,15 @@ Mojolicious::Command::get - Get command
 
   Options:
     -C, --charset <charset>     Charset of HTML/XML content, defaults to auto
-                                detection.
-    -c, --content <content>     Content to send with request.
+                                detection
+    -c, --content <content>     Content to send with request
     -f, --form <json>           Form data specified as serialized JSON, to send
-                                as query string or urlencoded content.
-    -H, --header <name:value>   Additional HTTP header.
-    -j, --json <json>           Serialized JSON to send as content.
-    -M, --method <method>       HTTP method to use, defaults to "GET".
-    -r, --redirect              Follow up to 10 redirects.
-    -v, --verbose               Print request and response headers to STDERR.
+                                as query string or urlencoded content
+    -H, --header <name:value>   Additional HTTP header
+    -j, --json <json>           Serialized JSON to send as content
+    -M, --method <method>       HTTP method to use, defaults to "GET"
+    -r, --redirect              Follow up to 10 redirects
+    -v, --verbose               Print request and response headers to STDERR
 
 =head1 DESCRIPTION
 
@@ -184,14 +184,14 @@ applications.
 =head2 description
 
   my $description = $get->description;
-  $get            = $get->description('Foo!');
+  $get            = $get->description('Foo');
 
 Short description of this command, used for the command list.
 
 =head2 usage
 
   my $usage = $get->usage;
-  $get      = $get->usage('Foo!');
+  $get      = $get->usage('Foo');
 
 Usage information for this command, used for the help screen.
 

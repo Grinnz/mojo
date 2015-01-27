@@ -57,7 +57,7 @@ sub run {
   $self->configure('hypnotoad');
   weaken $self;
   $prefork->on(wait   => sub { $self->_manage });
-  $prefork->on(reap   => sub { $self->_reap(pop) });
+  $prefork->on(reap   => sub { $self->_cleanup(pop) });
   $prefork->on(finish => sub { $self->{finished} = 1 });
 
   # Testing
@@ -78,6 +78,15 @@ sub run {
   $prefork->cleanup(1)->run;
 }
 
+sub _cleanup {
+  my ($self, $pid) = @_;
+
+  # Clean up failed upgrade
+  return unless ($self->{new} || '') eq $pid;
+  $self->prefork->app->log->error('Zero downtime software upgrade failed');
+  delete @$self{qw(new upgrade)};
+}
+
 sub _exit { say shift and exit 0 }
 
 sub _hot_deploy {
@@ -94,9 +103,11 @@ sub _manage {
   my $self = shift;
 
   # Upgraded
-  my $log = $self->prefork->app->log;
+  my $prefork = $self->prefork;
+  my $log     = $prefork->app->log;
   if ($ENV{HYPNOTOAD_PID} && $ENV{HYPNOTOAD_PID} ne $$) {
-    $log->info("Upgrade successful, stopping $ENV{HYPNOTOAD_PID}.");
+    return unless $prefork->healthy == $prefork->workers;
+    $log->info("Upgrade successful, stopping $ENV{HYPNOTOAD_PID}");
     kill 'QUIT', $ENV{HYPNOTOAD_PID};
   }
   $ENV{HYPNOTOAD_PID} = $$ unless ($ENV{HYPNOTOAD_PID} // '') eq $$;
@@ -106,7 +117,7 @@ sub _manage {
 
     # Fresh start
     unless ($self->{new}) {
-      $log->info('Starting zero downtime software upgrade.');
+      $log->info('Starting zero downtime software upgrade');
       die "Can't fork: $!" unless defined(my $pid = $self->{new} = fork);
       exec $^X, $ENV{HYPNOTOAD_EXE} or die "Can't exec: $!" unless $pid;
     }
@@ -115,15 +126,6 @@ sub _manage {
     kill 'KILL', $self->{new}
       if $self->{upgrade} + $self->upgrade_timeout <= steady_time;
   }
-}
-
-sub _reap {
-  my ($self, $pid) = @_;
-
-  # Clean up failed upgrade
-  return unless ($self->{new} || '') eq $pid;
-  $self->prefork->app->log->error('Zero downtime software upgrade failed.');
-  delete @$self{qw(new upgrade)};
 }
 
 sub _stop {
@@ -158,11 +160,11 @@ Note that the server uses signals for process management, so you should avoid
 modifying signal handlers in your applications.
 
 To start applications with it you can use the L<hypnotoad> script, which
-automatically daemonizes the server process and defaults to C<production> mode
-for L<Mojolicious> and L<Mojolicious::Lite> applications.
+listens on port C<8080>, automatically daemonizes the server process and
+defaults to C<production> mode for L<Mojolicious> and L<Mojolicious::Lite>
+applications.
 
   $ hypnotoad ./myapp.pl
-  Server available at http://127.0.0.1:8080.
 
 You can run the same command again for automatic hot deployment.
 
@@ -188,11 +190,11 @@ with the following signals.
 
 =head2 INT, TERM
 
-Shutdown server immediately.
+Shut down server immediately.
 
 =head2 QUIT
 
-Shutdown server gracefully.
+Shut down server gracefully.
 
 =head2 TTIN
 

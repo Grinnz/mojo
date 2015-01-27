@@ -5,10 +5,14 @@ use Mojo::ByteStream;
 use Mojo::Collection;
 use Mojo::Exception;
 use Mojo::IOLoop;
-use Mojo::Util qw(dumper sha1_sum steady_time);
+use Mojo::Util qw(deprecated dumper sha1_sum steady_time);
 
 sub register {
   my ($self, $app) = @_;
+
+  # DEPRECATED in Tiger Face!
+  $app->helper(render_exception => sub { _render('exception', @_) });
+  $app->helper(render_not_found => sub { _render('not_found', @_) });
 
   # Controller alias helpers
   for my $name (qw(app flash param stash session url_for validation)) {
@@ -80,11 +84,19 @@ sub _delay {
   my $c     = shift;
   my $tx    = $c->render_later->tx;
   my $delay = Mojo::IOLoop->delay(@_);
-  $delay->catch(sub { $c->render_exception(pop) and undef $tx })->wait;
+  $delay->catch(sub { $c->helpers->reply->exception(pop) and undef $tx })
+    ->wait;
 }
 
 sub _development {
   my ($page, $c, $e) = @_;
+
+  # DEPRECATED in Tiger Face!
+  if (my $sub = $c->can("render_$page")) {
+    deprecated "Mojolicious::Controller::render_$page is DEPRECATED in favor"
+      . " of the reply->$page helper";
+    return $c->$sub($page eq 'exception' ? $e : ());
+  }
 
   my $app = $c->app;
   $app->log->error($e = Mojo::Exception->new($e)) if $page eq 'exception';
@@ -137,11 +149,19 @@ sub _is_fresh {
   return $c->app->static->is_fresh($c, \%options);
 }
 
+# DEPRECATED in Tiger Face!
+sub _render {
+  my $page = shift;
+  deprecated "Mojolicious::Controller::render_$page is DEPRECATED in favor of"
+    . " the reply->$page helper";
+  shift->helpers->reply->$page(@_);
+}
+
 sub _static {
   my ($c, $file) = @_;
   return !!$c->rendered if $c->app->static->serve($c, $file);
-  $c->app->log->debug(qq{File "$file" not found, public directory missing?});
-  return !$c->render_not_found;
+  $c->app->log->debug(qq{Static file "$file" not found});
+  return !$c->helpers->reply->not_found;
 }
 
 sub _url_with {

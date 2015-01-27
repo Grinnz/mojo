@@ -49,7 +49,7 @@ sub cookie {
 
     # Cookie too big
     my $cookie = {name => $name, value => shift, %{shift || {}}};
-    $self->app->log->error(qq{Cookie "$name" is bigger than 4096 bytes.})
+    $self->app->log->error(qq{Cookie "$name" is bigger than 4096 bytes})
       if length $cookie->{value} > 4096;
 
     $self->res->cookies($cookie);
@@ -70,7 +70,8 @@ sub every_param {
 
   # Captured unreserved values
   my $captures = $self->stash->{'mojo.captures'} ||= {};
-  if (!$RESERVED{$name} && defined(my $value = $captures->{$name})) {
+  if (!$RESERVED{$name} && exists $captures->{$name}) {
+    my $value = $captures->{$name};
     return ref $value eq 'ARRAY' ? $value : [$value];
   }
 
@@ -98,10 +99,10 @@ sub every_signed_cookie {
       }
       if ($valid) { push @results, $value }
 
-      else { $self->app->log->debug(qq{Cookie "$name" has bad signature.}) }
+      else { $self->app->log->debug(qq{Cookie "$name" has a bad signature}) }
     }
 
-    else { $self->app->log->debug(qq{Cookie "$name" not signed.}) }
+    else { $self->app->log->debug(qq{Cookie "$name" is not signed}) }
   }
 
   return \@results;
@@ -154,13 +155,13 @@ sub param {
 
   # List names
   my $captures = $self->stash->{'mojo.captures'} ||= {};
-  my $req = $self->req;
   unless (defined $name) {
+    my $req  = $self->req;
+    my @keys = $req->param;
+    push @keys, map  { $_->name } @{$req->uploads};
+    push @keys, grep { !$RESERVED{$_} } keys %$captures;
     my %seen;
-    my @keys = grep { !$seen{$_}++ } $req->param;
-    push @keys, grep { !$seen{$_}++ } map { $_->name } @{$req->uploads};
-    push @keys, grep { !$RESERVED{$_} && !$seen{$_}++ } keys %$captures;
-    return sort @keys;
+    return sort grep { !$seen{$_}++ } @keys;
   }
 
   # Value
@@ -196,7 +197,8 @@ sub render {
   return defined $output ? Mojo::ByteStream->new($output) : undef if $ts;
 
   # Maybe
-  return $maybe ? undef : !$self->render_not_found unless defined $output;
+  return $maybe ? undef : !$self->helpers->reply->not_found
+    unless defined $output;
 
   # Prepare response
   $plugins->emit_hook(after_render => $self, \$output, $format);
@@ -206,13 +208,9 @@ sub render {
   return !!$self->rendered($self->stash->{status});
 }
 
-sub render_exception { shift->helpers->reply->exception(@_) }
-
 sub render_later { shift->stash('mojo.rendered' => 1) }
 
 sub render_maybe { shift->render(@_, 'mojo.maybe' => 1) }
-
-sub render_not_found { shift->helpers->reply->not_found }
 
 sub render_to_string { shift->render(@_, 'mojo.to_string' => 1) }
 
@@ -235,7 +233,7 @@ sub rendered {
       my $rps  = $elapsed == 0 ? '??' : sprintf '%.3f', 1 / $elapsed;
       my $code = $res->code;
       my $msg  = $res->message || $res->default_message($code);
-      $app->log->debug("$code $msg (${elapsed}s, $rps/s).");
+      $app->log->debug("$code $msg (${elapsed}s, $rps/s)");
     }
 
     $app->plugins->emit_hook_reverse(after_dispatch => $self);
@@ -432,7 +430,7 @@ A reference back to the application that dispatched to this controller,
 defaults to a L<Mojolicious> object.
 
   # Use application logger
-  $c->app->log->debug('Hello Mojo!');
+  $c->app->log->debug('Hello Mojo');
 
   # Generate path
   my $path = $c->app->home->rel_file('templates/foo/bar.html.ep');
@@ -467,7 +465,7 @@ underlying connection might get closed early.
   # Perform non-blocking operation without knowing the connection status
   my $tx = $c->tx;
   Mojo::IOLoop->timer(2 => sub {
-    $c->app->log->debug($tx->is_finished ? 'Finished.' : 'In progress.');
+    $c->app->log->debug($tx->is_finished ? 'Finished' : 'In progress');
   });
 
 =head1 METHODS
@@ -558,6 +556,9 @@ L<Mojolicious::Plugin::DefaultHelpers> and L<Mojolicious::Plugin::TagHelpers>.
   # Make sure to use the "title" helper and not the controller method
   $c->helpers->title('Welcome!');
 
+  # Use a nested helper instead of the "reply" controller method
+  $c->helpers->reply->not_found;
+
 =head2 on
 
   my $cb = $c->on(finish => sub {...});
@@ -570,7 +571,7 @@ status.
   # Do something after the transaction has been finished
   $c->on(finish => sub {
     my $c = shift;
-    $c->app->log->debug('We are done!');
+    $c->app->log->debug('We are done');
   });
 
   # Receive WebSocket message
@@ -589,7 +590,7 @@ status.
   $c->on(binary => sub {
     my ($c, $bytes) = @_;
     my $len = length $bytes;
-    $c->app->log->debug("Received $len bytes.");
+    $c->app->log->debug("Received $len bytes");
   });
 
 =head2 param
@@ -668,21 +669,20 @@ L</"stash">.
   # Render JSON
   $c->render(json => {test => 'I ♥ Mojolicious!'});
 
+  # Render inline template
+  $c->render(inline => '<%= 1 + 1 %>');
+
   # Render template "foo/bar.html.ep"
   $c->render(template => 'foo/bar', format => 'html', handler => 'ep');
 
   # Render template "foo/bar.*.*"
   $c->render(template => 'foo/bar');
 
+  # Render template "test.*.*" with arbitrary values "foo" and "bar"
+  $c->render(template => 'test', foo => 'test', bar => 23);
+
   # Render template "test.xml.*"
   $c->render('test', format => 'xml');
-
-=head2 render_exception
-
-  $c = $c->render_exception('Oops!');
-  $c = $c->render_exception(Mojo::Exception->new('Oops!'));
-
-Alias for L<Mojolicious::Plugin::DefaultHelpers/"reply-E<gt>exception">.
 
 =head2 render_later
 
@@ -710,12 +710,6 @@ could be generated, takes the same arguments as L</"render">.
   # Render template "index_local" only if it exists
   $c->render_maybe('index_local') or $c->render('index');
 
-=head2 render_not_found
-
-  $c = $c->render_not_found;
-
-Alias for L<Mojolicious::Plugin::DefaultHelpers/"reply-E<gt>not_found">.
-
 =head2 render_to_string
 
   my $output = $c->render_to_string('foo/index', format => 'pdf');
@@ -724,6 +718,9 @@ Try to render content and return it wrapped in a L<Mojo::ByteStream> object or
 return C<undef>, all arguments get localized automatically and are only
 available during this render operation, takes the same arguments as
 L</"render">.
+
+  # Render inline template
+  my $two = $c->render_to_string(inline => '<%= 1 + 1 %>');
 
 =head2 rendered
 
@@ -774,6 +771,10 @@ Get L<Mojo::Message::Response> object from L</"tx">.
 
   # Force file download by setting a custom response header
   $c->res->headers->content_disposition('attachment; filename=foo.png;');
+
+  # Make sure response is cached correctly
+  $c->res->headers->cache_control('public, max-age=300');
+  $c->res->headers->append(Vary => 'Accept-Encoding');
 
 =head2 respond_to
 
@@ -892,6 +893,9 @@ reserved for internal use.
 
   # Remove value
   my $foo = delete $c->stash->{foo};
+
+  # Assign multiple values at once
+  $c->stash(foo => 'test', bar => 23);
 
 =head2 url_for
 

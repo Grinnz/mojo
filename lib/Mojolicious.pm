@@ -32,7 +32,7 @@ has secrets  => sub {
   my $self = shift;
 
   # Warn developers about insecure default
-  $self->log->debug('Your secret passphrase needs to be changed!!!');
+  $self->log->debug('Your secret passphrase needs to be changed');
 
   # Default to moniker
   return [$self->moniker];
@@ -43,7 +43,7 @@ has types     => sub { Mojolicious::Types->new };
 has validator => sub { Mojolicious::Validator->new };
 
 our $CODENAME = 'Tiger Face';
-our $VERSION  = '5.73';
+our $VERSION  = '5.76';
 
 sub AUTOLOAD {
   my $self = shift;
@@ -102,13 +102,13 @@ sub dispatch {
     my $req    = $c->req;
     my $method = $req->method;
     my $path   = $req->url->path->to_abs_string;
-    $self->log->debug(qq{$method "$path".});
+    $self->log->debug(qq{$method "$path"});
     $stash->{'mojo.started'} = [Time::HiRes::gettimeofday];
   }
 
   # Routes
   $plugins->emit_hook(before_routes => $c);
-  $c->render_not_found
+  $c->helpers->reply->not_found
     unless $tx->res->code || $self->routes->dispatch($c) || $tx->res->code;
 }
 
@@ -127,14 +127,14 @@ sub handler {
   $self->plugins->emit_chain(around_dispatch => $c);
 
   # Delayed response
-  $self->log->debug('Nothing has been rendered, expecting delayed response.')
+  $self->log->debug('Nothing has been rendered, expecting delayed response')
     unless $c->tx->is_writing;
 }
 
 sub helper {
   my ($self, $name, $cb) = @_;
   my $r = $self->renderer;
-  $self->log->debug(qq{Helper "$name" already exists, replacing.})
+  $self->log->debug(qq{Helper "$name" already exists, replacing})
     if exists $r->helpers->{$name};
   $r->add_helper($name => $cb);
 }
@@ -154,10 +154,9 @@ sub new {
   # Hide controller attributes/methods
   $r->hide(qw(app continue cookie every_cookie every_param));
   $r->hide(qw(every_signed_cookie finish flash helpers match on param));
-  $r->hide(qw(redirect_to render render_exception render_later render_maybe));
-  $r->hide(qw(render_not_found render_to_string rendered req res respond_to));
-  $r->hide(qw(send session signed_cookie stash tx url_for validation write));
-  $r->hide(qw(write_chunk));
+  $r->hide(qw(redirect_to render render_later render_maybe render_to_string));
+  $r->hide(qw(rendered req res respond_to send session signed_cookie stash));
+  $r->hide(qw(tx url_for validation write write_chunk));
 
   # Check if we have a log directory that is writable
   my $mode = $self->mode;
@@ -195,7 +194,7 @@ sub _exception {
   my ($next, $c) = @_;
   local $SIG{__DIE__}
     = sub { ref $_[0] ? CORE::die($_[0]) : Mojo::Exception->throw(@_) };
-  $c->render_exception($@) unless eval { $next->(); 1 };
+  $c->helpers->reply->exception($@) unless eval { $next->(); 1 };
 }
 
 1;
@@ -562,6 +561,9 @@ request.
 
   # Remove value
   my $foo = delete $app->defaults->{foo};
+
+  # Assign multiple values at once
+  $app->defaults(foo => 'test', bar => 23);
 
 =head2 dispatch
 

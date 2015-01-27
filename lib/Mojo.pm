@@ -87,7 +87,7 @@ which stringifies to the actual path.
 The logging layer of your application, defaults to a L<Mojo::Log> object.
 
   # Log debug message
-  $app->log->debug('It works!');
+  $app->log->debug('It works');
 
 =head2 ua
 
@@ -123,6 +123,9 @@ Application configuration.
 
   # Remove value
   my $foo = delete $app->config->{foo};
+
+  # Assign multiple values at once
+  $app->config(foo => 'test', bar => 23);
 
 =head2 handler
 

@@ -4,7 +4,7 @@ use Mojo::Base 'Mojo::EventEmitter';
 # "Fry: Since when is the Internet about robbing people of their privacy?
 #  Bender: August 6, 1991."
 use Mojo::IOLoop;
-use Mojo::Util 'monkey_patch';
+use Mojo::Util qw(monkey_patch term_escape);
 use Mojo::UserAgent::CookieJar;
 use Mojo::UserAgent::Proxy;
 use Mojo::UserAgent::Server;
@@ -50,12 +50,12 @@ sub start {
 
   # Non-blocking
   if ($cb) {
-    warn "-- Non-blocking request (@{[$tx->req->url->to_abs]})\n" if DEBUG;
+    warn "-- Non-blocking request (@{[_url($tx)]})\n" if DEBUG;
     return $self->_start(1, $tx, $cb);
   }
 
   # Blocking
-  warn "-- Blocking request (@{[$tx->req->url->to_abs]})\n" if DEBUG;
+  warn "-- Blocking request (@{[_url($tx)]})\n" if DEBUG;
   $self->_start(0, $tx => sub { shift->ioloop->stop; $tx = shift });
   $self->ioloop->start;
 
@@ -187,7 +187,7 @@ sub _connection {
   my ($proto, $host, $port) = $self->transactor->endpoint($tx);
   $id ||= $self->_dequeue($nb, "$proto:$host:$port", 1);
   if ($id && !ref $id) {
-    warn "-- Reusing connection ($proto:$host:$port)\n" if DEBUG;
+    warn "-- Reusing connection ($proto://$host:$port)\n" if DEBUG;
     $self->{connections}{$id} = {cb => $cb, nb => $nb, tx => $tx};
     $tx->kept_alive(1) unless $tx->connection;
     $self->_connected($id);
@@ -198,7 +198,7 @@ sub _connection {
   if (my $id = $self->_connect_proxy($nb, $tx, $cb)) { return $id }
 
   # Connect
-  warn "-- Connect ($proto:$host:$port)\n" if DEBUG;
+  warn "-- Connect ($proto://$host:$port)\n" if DEBUG;
   $id = $self->_connect($nb, 1, $tx, $id, \&_connected);
   $self->{connections}{$id} = {cb => $cb, nb => $nb, tx => $tx};
 
@@ -279,7 +279,7 @@ sub _read {
   return $self->_remove($id) unless my $tx = $c->{tx};
 
   # Process incoming data
-  warn "-- Client <<< Server (@{[$tx->req->url->to_abs]})\n$chunk\n" if DEBUG;
+  warn term_escape "-- Client <<< Server (@{[_url($tx)]})\n$chunk\n" if DEBUG;
   $tx->client_read($chunk);
   if    ($tx->is_finished) { $self->_finish($id) }
   elsif ($tx->is_writing)  { $self->_write($id) }
@@ -329,6 +329,8 @@ sub _start {
   return $id;
 }
 
+sub _url { shift->req->url->to_abs }
+
 sub _write {
   my ($self, $id) = @_;
 
@@ -338,7 +340,7 @@ sub _write {
   return if !$tx->is_writing || $c->{writing}++;
   my $chunk = $tx->client_write;
   delete $c->{writing};
-  warn "-- Client >>> Server (@{[$tx->req->url->to_abs]})\n$chunk\n" if DEBUG;
+  warn term_escape "-- Client >>> Server (@{[_url($tx)]})\n$chunk\n" if DEBUG;
   my $stream = $self->_loop($c->{nb})->stream($id)->write($chunk);
   $self->_finish($id) if $tx->is_finished;
 

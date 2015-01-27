@@ -23,7 +23,6 @@ sub check {
     elsif (-r $watch) { push @files, $watch }
   }
 
-  # Check files
   $self->_check($_) and return $_ for @files;
   return undef;
 }
@@ -32,10 +31,10 @@ sub run {
   my ($self, $app) = @_;
 
   # Clean manager environment
-  local $SIG{CHLD} = sub { $self->_reap };
+  local $SIG{CHLD} = sub { $self->_reap if $self->{worker} };
   local $SIG{INT} = local $SIG{TERM} = local $SIG{QUIT} = sub {
     $self->{finished} = 1;
-    kill 'TERM', $self->{running} if $self->{running};
+    kill 'TERM', $self->{worker} if $self->{worker};
   };
   unshift @{$self->watch}, $app;
   $self->{modified} = 1;
@@ -43,7 +42,7 @@ sub run {
   # Prepare and cache listen sockets for smooth restarting
   my $daemon = Mojo::Server::Daemon->new(silent => 1)->start->stop;
 
-  $self->_manage while !$self->{finished} || $self->{running};
+  $self->_manage while !$self->{finished} || $self->{worker};
   exit 0;
 }
 
@@ -64,28 +63,28 @@ sub _manage {
 
   if (defined(my $file = $self->check)) {
     say qq{File "$file" changed, restarting.} if $ENV{MORBO_VERBOSE};
-    kill 'TERM', $self->{running} if $self->{running};
+    kill 'TERM', $self->{worker} if $self->{worker};
     $self->{modified} = 1;
   }
 
+  # Windows workaround
+  delete $self->{worker} if $self->{worker} && !kill 0, $self->{worker};
+
   $self->_reap;
-  delete $self->{running} if $self->{running} && !kill 0, $self->{running};
-  $self->_spawn if !$self->{running} && delete $self->{modified};
+  $self->_spawn if !$self->{worker} && delete $self->{modified};
   sleep 1;
 }
 
-sub _reap { delete $_[0]{running} while (waitpid -1, WNOHANG) > 0 }
+sub _reap { delete $_[0]{worker} while (waitpid -1, WNOHANG) > 0 }
 
 sub _spawn {
   my $self = shift;
 
-  # Fork
+  # Manager
   my $manager = $$;
   $ENV{MORBO_REV}++;
-  die "Can't fork: $!" unless defined(my $pid = fork);
-
-  # Manager
-  return $self->{running} = $pid if $pid;
+  die "Can't fork: $!" unless defined(my $pid = $self->{worker} = fork);
+  return if $pid;
 
   # Worker
   $SIG{CHLD} = 'DEFAULT';
@@ -128,7 +127,7 @@ applications.
 To start applications with it you can use the L<morbo> script.
 
   $ morbo ./myapp.pl
-  Server available at http://127.0.0.1:3000.
+  Server available at http://127.0.0.1:3000
 
 For better scalability (epoll, kqueue) and to provide non-blocking name
 resolution, SOCKS5 as well as TLS support, the optional modules L<EV> (4.0+),

@@ -51,11 +51,15 @@ sub ensure_pid_file {
   return if -e (my $file = $self->pid_file);
 
   # Create PID file
-  $self->app->log->info(qq{Creating process id file "$file".});
+  $self->app->log->info(qq{Creating process id file "$file"});
   die qq{Can't create process id file "$file": $!}
     unless open my $handle, '>', $file;
   chmod 0644, $handle;
   print $handle $$;
+}
+
+sub healthy {
+  scalar grep { $_->{healthy} } values %{shift->{pool}};
 }
 
 sub run {
@@ -78,8 +82,7 @@ sub run {
   local $SIG{INT} = local $SIG{TERM} = sub { $self->_term };
   local $SIG{CHLD} = sub {
     while ((my $pid = waitpid -1, WNOHANG) > 0) {
-      $self->app->log->debug("Worker $pid stopped.")
-        if delete $self->emit(reap => $pid)->{pool}{$pid};
+      $self->emit(reap => $pid)->_stopped($pid);
     }
   };
   local $SIG{QUIT} = sub { $self->_term(1) };
@@ -91,33 +94,17 @@ sub run {
   };
 
   # Preload application before starting workers
-  $self->start->app->log->info("Manager $$ started.");
+  $self->start->app->log->info("Manager $$ started");
   $self->{running} = 1;
   $self->_manage while $self->{running};
 }
 
-sub _heartbeat {
-  my $self = shift;
-
-  # Poll for heartbeats
-  my $poll = $self->{poll};
-  $poll->poll(1);
-  return unless $poll->handles(POLLIN | POLLPRI);
-  return unless $self->{reader}->sysread(my $chunk, 4194304);
-
-  # Update heartbeats (and stop gracefully if necessary)
-  my $time = steady_time;
-  while ($chunk =~ /(\d+):(\d)\n/g) {
-    next unless my $w = $self->{pool}{$1};
-    $self->emit(heartbeat => $1) and $w->{time} = $time;
-    $w->{graceful} ||= $time if $2;
-  }
-}
+sub _heartbeat { shift->{writer}->syswrite("$$:$_[0]\n") or exit 0 }
 
 sub _manage {
   my $self = shift;
 
-  # Spawn more workers and check PID file
+  # Spawn more workers if necessary and check PID file
   if (!$self->{finished}) {
     $self->_spawn while keys %{$self->{pool}} < $self->workers;
     $self->ensure_pid_file;
@@ -127,31 +114,32 @@ sub _manage {
   elsif (!keys %{$self->{pool}}) { return delete $self->{running} }
 
   # Wait for heartbeats
-  $self->emit('wait')->_heartbeat;
+  $self->_wait;
 
   my $interval = $self->heartbeat_interval;
   my $ht       = $self->heartbeat_timeout;
   my $gt       = $self->graceful_timeout;
-  my $time     = steady_time;
   my $log      = $self->app->log;
+  my $time     = steady_time;
 
   for my $pid (keys %{$self->{pool}}) {
     next unless my $w = $self->{pool}{$pid};
 
     # No heartbeat (graceful stop)
-    $log->error("Worker $pid has no heartbeat, restarting.")
+    $log->error("Worker $pid has no heartbeat, restarting")
       and $w->{graceful} = $time
       if !$w->{graceful} && ($w->{time} + $interval + $ht <= $time);
 
     # Graceful stop with timeout
     my $graceful = $w->{graceful} ||= $self->{graceful} ? $time : undef;
-    $log->debug("Trying to stop worker $pid gracefully.")
-      and kill 'QUIT', $pid
+    $log->debug("Stopping worker $pid gracefully")
+      and (kill 'QUIT', $pid or $self->_stopped($pid))
       if $graceful && !$w->{quit}++;
     $w->{force} = 1 if $graceful && $graceful + $gt <= $time;
 
     # Normal stop
-    $log->debug("Stopping worker $pid.") and kill 'KILL', $pid
+    $log->debug("Stopping worker $pid")
+      and (kill 'KILL', $pid or $self->_stopped($pid))
       if $w->{force} || ($self->{finished} && !$graceful);
   }
 }
@@ -165,60 +153,82 @@ sub _spawn {
     if $pid;
 
   # Prepare lock file
-  my $file = $self->{lock_file};
+  my $file = $self->cleanup(0)->{lock_file};
   $self->app->log->error(qq{Can't open lock file "$file": $!})
     unless open my $handle, '>', $file;
 
   # Change user/group
-  $self->setuidgid->cleanup(0);
+  $self->setuidgid;
 
   # Accept mutex
+  weaken $self;
   my $loop = $self->ioloop->lock(
     sub {
 
+      # Non-blocking
+      return flock $handle, LOCK_EX | LOCK_NB unless shift;
+
       # Blocking ("ualarm" can't be imported on Windows)
       my $lock;
-      if ($_[0]) {
-        eval {
-          local $SIG{ALRM} = sub { die "alarm\n" };
-          my $old = Time::HiRes::ualarm $self->lock_timeout * 1000000;
-          $lock = flock $handle, LOCK_EX;
-          Time::HiRes::ualarm $old;
-          1;
-        } or $lock = $@ eq "alarm\n" ? 0 : die $@;
-      }
-
-      # Non-blocking
-      else { $lock = flock $handle, LOCK_EX | LOCK_NB }
-
+      eval {
+        local $SIG{ALRM} = sub { die "alarm\n" };
+        my $old = Time::HiRes::ualarm $self->lock_timeout * 1000000;
+        $lock = flock $handle, LOCK_EX;
+        Time::HiRes::ualarm $old;
+        1;
+      } or $lock = $@ eq "alarm\n" ? 0 : die $@;
       return $lock;
     }
   );
   $loop->unlock(sub { flock $handle, LOCK_UN });
 
   # Heartbeat messages
-  weaken $self;
-  $loop->recurring(
-    $self->heartbeat_interval => sub {
-      my $graceful = shift->max_connections ? 0 : 1;
-      $self->{writer}->syswrite("$$:$graceful\n") or exit 0;
-    }
-  );
+  my $cb = sub { $self->_heartbeat(shift->max_connections ? 0 : 1) };
+  $loop->next_tick($cb);
+  $loop->recurring($self->heartbeat_interval => $cb);
 
   # Clean worker environment
   $SIG{$_} = 'DEFAULT' for qw(INT TERM CHLD TTIN TTOU);
   $SIG{QUIT} = sub { $loop->max_connections(0) };
   delete @$self{qw(poll reader)};
 
-  $self->app->log->debug("Worker $$ started.");
+  $self->app->log->debug("Worker $$ started");
   $loop->start;
   exit 0;
 }
 
+sub _stopped {
+  my ($self, $pid) = @_;
+
+  return unless my $w = delete $self->{pool}{$pid};
+
+  my $log = $self->app->log;
+  $log->debug("Worker $pid stopped");
+  $log->error("Worker $pid stopped too early, shutting down") and $self->_term
+    unless $w->{healthy};
+}
+
 sub _term {
   my ($self, $graceful) = @_;
-  $self->emit(finish => $graceful)->{finished} = 1;
-  $self->{graceful} = 1 if $graceful;
+  @{$self->emit(finish => $graceful)}{qw(finished graceful)} = (1, $graceful);
+}
+
+sub _wait {
+  my $self = shift;
+
+  # Poll for heartbeats
+  my $poll = $self->emit('wait')->{poll};
+  $poll->poll(1);
+  return unless $poll->handles(POLLIN | POLLPRI);
+  return unless $self->{reader}->sysread(my $chunk, 4194304);
+
+  # Update heartbeats (and stop gracefully if necessary)
+  my $time = steady_time;
+  while ($chunk =~ /(\d+):(\d)\n/g) {
+    next unless my $w = $self->{pool}{$1};
+    @$w{qw(healthy time)} = (1, $time) and $self->emit(heartbeat => $1);
+    $w->{graceful} ||= $time if $2;
+  }
 }
 
 1;
@@ -277,11 +287,11 @@ the following signals.
 
 =head2 INT, TERM
 
-Shutdown server immediately.
+Shut down server immediately.
 
 =head2 QUIT
 
-Shutdown server gracefully.
+Shut down server gracefully.
 
 =head2 TTIN
 
@@ -498,6 +508,12 @@ is not running.
   $prefork->ensure_pid_file;
 
 Ensure L</"pid_file"> exists.
+
+=head2 healthy
+
+  my $healthy = $prefork->healthy;
+
+Number of currently active worker processes with a heartbeat.
 
 =head2 run
 

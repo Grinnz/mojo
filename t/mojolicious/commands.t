@@ -10,6 +10,9 @@ use Test::More;
 use FindBin;
 use lib "$FindBin::Bin/lib";
 
+use Cwd 'cwd';
+use File::Temp 'tempdir';
+
 # Make sure @ARGV is not changed
 {
   local $ENV{MOJO_MODE};
@@ -86,9 +89,18 @@ is $app->start('test_command'), 'works!', 'right result';
 ok $commands->description, 'has a description';
 like $commands->message,   qr/COMMAND/, 'has a message';
 like $commands->hint,      qr/help/, 'has a hint';
+my $buffer = '';
+{
+  open my $handle, '>', \$buffer;
+  local *STDOUT = $handle;
+  local $ENV{HARNESS_ACTIVE} = 0;
+  $commands->run;
+}
+like $buffer, qr/Usage: APPLICATION COMMAND \[OPTIONS\].*daemon.*version/s,
+  'right output';
 
 # help
-my $buffer = '';
+$buffer = '';
 {
   open my $handle, '>', \$buffer;
   local *STDOUT = $handle;
@@ -100,10 +112,10 @@ $buffer = '';
 {
   open my $handle, '>', \$buffer;
   local *STDOUT = $handle;
-  $commands->run('generate', 'lite_app', '-h');
+  $commands->run('generate', 'app', '-h');
 }
-like $buffer, qr/Usage: APPLICATION generate lite_app \[NAME\]/,
-  'right output';
+like $buffer, qr/Usage: APPLICATION generate app \[NAME\]/, 'right output';
+$buffer = '';
 {
   open my $handle, '>', \$buffer;
   local *STDOUT = $handle;
@@ -148,31 +160,100 @@ require Mojolicious::Command::generate;
 my $generator = Mojolicious::Command::generate->new;
 ok $generator->description, 'has a description';
 like $generator->message,   qr/generate/, 'has a message';
-like $commands->hint,       qr/help/, 'has a hint';
+like $generator->hint,      qr/help/, 'has a hint';
+$buffer = '';
+{
+  open my $handle, '>', \$buffer;
+  local *STDOUT = $handle;
+  local $ENV{HARNESS_ACTIVE} = 0;
+  $generator->run;
+}
+like $buffer,
+  qr/Usage: APPLICATION generate GENERATOR \[OPTIONS\].*lite_app.*plugin/s,
+  'right output';
 
 # generate app
 require Mojolicious::Command::generate::app;
 $app = Mojolicious::Command::generate::app->new;
 ok $app->description, 'has a description';
 like $app->usage, qr/app/, 'has usage information';
+my $cwd = cwd;
+my $dir = tempdir CLEANUP => 1;
+chdir $dir;
+$buffer = '';
+{
+  open my $handle, '>', \$buffer;
+  local *STDOUT = $handle;
+  $app->run;
+}
+like $buffer, qr/my_app/, 'right output';
+ok -e $app->rel_file('my_app/script/my_app'), 'script exists';
+ok -e $app->rel_file('my_app/lib/MyApp.pm'),  'application class exists';
+ok -e $app->rel_file('my_app/lib/MyApp/Controller/Example.pm'),
+  'controller exists';
+ok -e $app->rel_file('my_app/t/basic.t'),         'test exists';
+ok -e $app->rel_file('my_app/public/index.html'), 'static file exists';
+ok -e $app->rel_file('my_app/templates/layouts/default.html.ep'),
+  'layout exists';
+ok -e $app->rel_file('my_app/templates/example/welcome.html.ep'),
+  'template exists';
+chdir $cwd;
 
 # generate lite_app
 require Mojolicious::Command::generate::lite_app;
 $app = Mojolicious::Command::generate::lite_app->new;
 ok $app->description, 'has a description';
 like $app->usage, qr/lite_app/, 'has usage information';
+$dir = tempdir CLEANUP => 1;
+chdir $dir;
+$buffer = '';
+{
+  open my $handle, '>', \$buffer;
+  local *STDOUT = $handle;
+  $app->run;
+}
+like $buffer, qr/myapp\.pl/, 'right output';
+ok -e $app->rel_file('myapp.pl'), 'app exists';
+chdir $cwd;
 
 # generate makefile
 require Mojolicious::Command::generate::makefile;
 my $makefile = Mojolicious::Command::generate::makefile->new;
 ok $makefile->description, 'has a description';
 like $makefile->usage, qr/makefile/, 'has usage information';
+$dir = tempdir CLEANUP => 1;
+chdir $dir;
+$buffer = '';
+{
+  open my $handle, '>', \$buffer;
+  local *STDOUT = $handle;
+  $makefile->run;
+}
+like $buffer, qr/Makefile\.PL/, 'right output';
+ok -e $app->rel_file('Makefile.PL'), 'Makefile.PL exists';
+chdir $cwd;
 
 # generate plugin
 require Mojolicious::Command::generate::plugin;
 my $plugin = Mojolicious::Command::generate::plugin->new;
 ok $plugin->description, 'has a description';
 like $plugin->usage, qr/plugin/, 'has usage information';
+$dir = tempdir CLEANUP => 1;
+chdir $dir;
+$buffer = '';
+{
+  open my $handle, '>', \$buffer;
+  local *STDOUT = $handle;
+  $plugin->run;
+}
+like $buffer, qr/MyPlugin\.pm/, 'right output';
+ok -e $app->rel_file(
+  'Mojolicious-Plugin-MyPlugin/lib/Mojolicious/Plugin/MyPlugin.pm'),
+  'class exists';
+ok -e $app->rel_file('Mojolicious-Plugin-MyPlugin/t/basic.t'), 'test exists';
+ok -e $app->rel_file('Mojolicious-Plugin-MyPlugin/Makefile.PL'),
+  'Makefile.PL exists';
+chdir $cwd;
 
 # get
 require Mojolicious::Command::get;
@@ -186,6 +267,29 @@ $buffer = '';
   $get->run('/');
 }
 like $buffer, qr/Your Mojo is working!/, 'right output';
+$get->app->hook(
+  before_dispatch => sub {
+    my $c = shift;
+    return $c->render(text => '<p>works</p>')
+      if $c->req->url->path->contains('/html');
+    $c->render(json => {works => 'too'})
+      if $c->req->url->path->contains('/json');
+  }
+);
+$buffer = '';
+{
+  open my $handle, '>', \$buffer;
+  local *STDOUT = $handle;
+  $get->run('/html', 'p', 'text');
+}
+like $buffer, qr/works/, 'right output';
+$buffer = '';
+{
+  open my $handle, '>', \$buffer;
+  local *STDOUT = $handle;
+  $get->run('/json', '/works');
+}
+like $buffer, qr/too/, 'right output';
 
 # inflate
 require Mojolicious::Command::inflate;
@@ -214,9 +318,18 @@ $buffer = '';
 {
   open my $handle, '>', \$buffer;
   local *STDOUT = $handle;
+  $routes->run;
+}
+like $buffer,   qr!/\*whatever!, 'right output';
+unlike $buffer, qr!/\(\.\+\)\?!, 'not verbose';
+$buffer = '';
+{
+  open my $handle, '>', \$buffer;
+  local *STDOUT = $handle;
   $routes->run('-v');
 }
-like $buffer, qr!/\*whatever.*\Q/(.+)?\E!, 'right output';
+like $buffer, qr!/\*whatever!, 'right output';
+like $buffer, qr!/\(\.\+\)\?!, 'verbose';
 
 # test
 require Mojolicious::Command::test;
