@@ -5,9 +5,8 @@ use Mojo::IOLoop;
 use Mojo::Util;
 use Hash::Util::FieldHash 'fieldhash';
 
-has ioloop => sub { Mojo::IOLoop->singleton };
-
-fieldhash my %REMAINING;
+has ioloop    => sub { Mojo::IOLoop->singleton };
+has remaining => sub { [] };
 
 sub begin {
   my ($self, $offset, $len) = @_;
@@ -19,13 +18,6 @@ sub begin {
 sub data { Mojo::Util::_stash(data => @_) }
 
 sub pass { $_[0]->begin->(@_) }
-
-sub remaining {
-  my $self = shift;
-  return $REMAINING{$self} //= [] unless @_;
-  $REMAINING{$self} = shift;
-  return $self;
-}
 
 sub steps {
   my $self = shift->remaining([@_]);
