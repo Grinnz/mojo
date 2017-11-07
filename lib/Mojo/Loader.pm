@@ -41,10 +41,11 @@ sub load_class {
   return 1 if ($class || '') !~ /^\w(?:[\w:']*\w)?$/;
 
   # Load if not already loaded
-  return undef if $class->can('new') || eval "require $class; 1";
+  my $path = class_to_path $class;
+  return undef if $class->can('new') || eval { require $path; 1 };
 
   # Does not exist
-  return 1 if $@ =~ /^Can't locate \Q@{[class_to_path $class]}\E in \@INC/;
+  return 1 if $@ =~ /^Can't locate \Q$path\E in \@INC/;
 
   # Real error
   return Mojo::Exception->new($@)->inspect;
