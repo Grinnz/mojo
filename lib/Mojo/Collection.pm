@@ -7,6 +7,7 @@ use List::Util;
 use Mojo::ByteStream;
 use Mojo::Util 'deprecated';
 use Scalar::Util 'blessed';
+use re 'is_regexp';
 
 our @EXPORT_OK = ('c');
 
@@ -30,7 +31,7 @@ sub each {
 sub first {
   my ($self, $cb) = (shift, shift);
   return $self->[0] unless $cb;
-  return List::Util::first { $_ =~ $cb } @$self if ref $cb eq 'Regexp';
+  return List::Util::first { $_ =~ $cb } @$self if is_regexp $cb;
   return List::Util::first { $_->$cb(@_) } @$self;
 }
 
@@ -38,7 +39,7 @@ sub flatten { $_[0]->new(_flatten(@{$_[0]})) }
 
 sub grep {
   my ($self, $cb) = (shift, shift);
-  return $self->new(grep { $_ =~ $cb } @$self) if ref $cb eq 'Regexp';
+  return $self->new(grep { $_ =~ $cb } @$self) if is_regexp $cb;
   return $self->new(grep { $_->$cb(@_) } @$self);
 }
 
